@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Train Speed Violation Analyzer</title>
+
+<!-- Bootstrap -->
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+
+<!-- Font Awesome -->
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+<!-- PapaParse (REQUIRED for CSV) -->
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+<link rel="stylesheet" href="style.css">
+</head>
+
+<body class="bg-light">
+
+<!-- NAVBAR -->
+<nav class="navbar navbar-dark bg-primary shadow-sm">
+  <div class="container-fluid">
+    <span class="navbar-brand fw-bold">
+      <i class="fa-solid fa-train"></i>
+      Train Speed Violation Analyzer
+    </span>
+  </div>
+</nav>
+
+<div class="container-fluid my-4 px-4 px-lg-5">
+
+  <!-- UPLOAD -->
+  <div class="card shadow-sm mb-4">
+      <div class="card-header fw-bold d-flex justify-content-between align-items-center">
+      <span>
+        <i class="fa-solid fa-file-csv text-success"></i>
+        CSV Upload
+      </span>
+
+      <!-- BUTTON ON TOP RIGHT -->
+      <button id="analyzeBtn" class="btn btn-success px-4">
+        <i class="fa-solid fa-play"></i>
+        Upload & Analyze
+      </button>
+    </div>
+
+    <div class="card-body row g-3 align-items-end">
+
+      <!-- RTIS DATA -->
+      <div class="col-md-4">
+        <label class="form-label text-danger fw-bold">
+          RTIS Data
+        </label>
+        <input
+          type="file"
+          id="csvFile"
+          class="form-control"
+          accept=".csv"
+        >
+      </div>
+
+      <!-- FSD DATA -->
+      <div class="col-md-4">
+        <label class="form-label fw-bold text-primary">
+          FSD Data (Home Signal)
+        </label>
+        <input
+          type="file"
+          id="fsdFile"
+          class="form-control"
+          accept=".csv"
+        >
+      </div>
+
+      <!-- CMS DATA -->
+      <div class="col-md-4">
+        <label class="form-label fw-bold text-success">
+          CMS Data (Crew Details)
+        </label>
+        <input
+          type="file"
+          id="cmsFile"
+          class="form-control"
+          accept=".csv"
+        >
+      </div>
+
+      <!-- BUTTON -->
+      <!-- div class="col-md-12 text-end mt-2">
+        <button id="analyzeBtn" class="btn btn-success px-4">
+          <i class="fa-solid fa-play"></i>
+          Upload & Analyze
+        </button>
+      </div> -->
+
+    </div>
+  </div>
+
+
+  <!-- SUMMARY -->
+  <div class="row mb-4">
+    <div class="col-md-6">
+      <div class="card bg-info text-white summary-card shadow-sm">
+        <div class="card-body">
+          <h6><i class="fa-solid fa-users"></i> Passenger</h6>
+          <div>Trains: <b id="pTrains">0</b></div>
+          <div>Violations: <b id="pViolations">0</b></div>
+          <div>Max Speed: <b id="pMax">0</b> kmph</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-6">
+      <div class="card bg-danger text-white summary-card shadow-sm">
+        <div class="card-body">
+          <h6><i class="fa-solid fa-box"></i> Goods</h6>
+          <div>Trains: <b id="gTrains">0</b></div>
+          <div>Violations: <b id="gViolations">0</b></div>
+          <div>Max Speed: <b id="gMax">0</b> kmph</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- VIOLATION LEADERS -->
+  <div class="card shadow-sm mb-4">
+    <div class="card-header fw-bold">
+      <i class="fa-solid fa-ranking-star"></i>
+      Violation Leaders
+    </div>
+
+    <div class="card-body">
+      <div class="row">
+
+        <!-- Passenger : LEFT -->
+        <div class="col-md-6 col-12 mb-3">
+          <h6 class="text-primary">
+            <i class="fa-solid fa-users"></i> Passenger
+          </h6>
+
+          <b>Top Trains</b>
+          <ul class="list-group mb-2" id="topPassengerTrains"></ul>
+
+          <b>Top Stations</b>
+          <ul class="list-group mb-2" id="topPassengerStations"></ul>
+
+          <div class="alert alert-info py-2">
+            <b>Highest Train:</b>
+            <span id="maxPassengerTrain">NA</span><br>
+            <b>Highest Station:</b>
+            <span id="maxPassengerStation">NA</span>
+          </div>
+        </div>
+
+        <!-- Goods : RIGHT -->
+        <div class="col-md-6 col-12 mb-3">
+          <h6 class="text-danger">
+            <i class="fa-solid fa-box"></i> Goods
+          </h6>
+
+          <b>Top Trains</b>
+          <ul class="list-group mb-2" id="topGoodsTrains"></ul>
+
+          <b>Top Stations</b>
+          <ul class="list-group mb-2" id="topGoodsStations"></ul>
+
+          <div class="alert alert-danger py-2">
+            <b>Highest Train:</b>
+            <span id="maxGoodsTrain">NA</span><br>
+            <b>Highest Station:</b>
+            <span id="maxGoodsStation">NA</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- CHARTS -->
+  <div class="card shadow-sm mb-4">
+    <div class="card-header fw-bold">
+      <i class="fa-solid fa-chart-column"></i>
+      Violation Charts
+    </div>
+    <div class="card-body row">
+      <div class="col-md-6">
+        <canvas id="violationChart"></canvas>
+      </div>
+      <div class="col-md-6">
+        <canvas id="speedChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAP -->
+  <div class="card shadow-sm mb-4">
+    <div class="card-header fw-bold">
+      <i class="fa-solid fa-map-location-dot"></i>
+      Map View
+    </div>
+    <div class="card-body">
+      <div id="map"></div>
+    </div>
+  </div>
+
+  <!-- TABLES -->
+  <div class="card shadow-sm mb-4">
+    <div class="card-header fw-bold">
+      <i class="fa-solid fa-table"></i>
+      Violation Details
+    </div>
+    <div class="card-body">
+
+      <h6 class="text-primary">
+        <i class="fa-solid fa-users"></i> Passenger
+      </h6>
+      <div class="table-responsive mb-4">
+        <table class="table table-bordered table-sm">
+          <thead class="table-dark">
+            <tr>
+              <th>Sl</th><th>Loco</th><th>Train</th><th>Viol</th>
+              <th>Station</th><th>DIRN</th><th>Speed</th><th>Event</th>
+              <th>Lat</th><th>Lon</th><th>Error (m)</th><th>Crew Name</th><th>Crew ID</th>
+            </tr>
+          </thead>
+          <tbody id="passengerTable"></tbody>
+        </table>
+      </div>
+
+      <h6 class="text-danger">
+        <i class="fa-solid fa-box"></i> Goods
+      </h6>
+      <div class="table-responsive">
+        <table class="table table-bordered table-sm">
+          <thead class="table-dark">
+            <tr>
+              <th>Sl</th><th>Loco</th><th>Train</th><th>Viol</th>
+              <th>Station</th><th>DIRN</th><th>Speed</th><th>Event</th>
+              <th>Lat</th><th>Lon</th><th>Error (m)</th><th>Crew Name</th><th>Crew ID</th>
+            </tr>
+          </thead>
+          <tbody id="goodsTable"></tbody>
+        </table>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<footer class="text-center text-muted small mb-3">
+  <i class="fa-solid fa-shield-halved"></i>
+  Internal Analytical Tool
+</footer>
+
+
+<!-- =========================
+     VIOLATION DETAILS MODAL
+========================= -->
+<div class="modal fade" id="violationModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+
+      <!-- HEADER -->
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i class="fa-solid fa-triangle-exclamation text-danger"></i>
+          Violation Details
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <!-- BODY -->
+      <div class="modal-body">
+
+        <!-- 🔹 HEADER BOX (Train / Station) -->
+        <div id="modalHeaderBox" class="alert alert-secondary mb-3"></div>
+
+        <!-- 🔹 VIOLATION TABLE -->
+        <div class="table-responsive">
+          <table class="table table-bordered table-sm">
+            <thead class="table-dark">
+              <tr>
+                <th>Train</th>
+                <th>Loco</th>
+                <th>DIRN</th>
+                <th>Station</th>
+                <th>Speed</th>
+                <th>Error (m)</th>
+                <th>Time</th>
+                <th>Crew Name</th>
+                <th>Crew ID</th>
+              </tr>
+            </thead>
+            <tbody id="violationModalBody"></tbody>
+          </table>
+        </div>
+
+      </div>
+
+
+      <!-- FOOTER -->
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">
+          Close
+        </button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+
+
+
+<!-- Bootstrap -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+<!-- Leaflet -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<!-- PapaParse -->
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+<!-- Chart.js (VERY IMPORTANT) -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+<!-- Your App -->
+<script src="app.js"></script>
+
+
+</body>
+</html>
