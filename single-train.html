@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Single Train – Home Signal & Stoppage Analysis</title>
+
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+<style>
+html, body { height: 100%; margin: 0; }
+#map { height: 100vh; }
+
+#topPanel {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  width: 96%;
+  max-width: 1300px;
+}
+
+#stopCard {
+  position: absolute;
+  right: 15px;
+  bottom: 15px;
+  width: 420px;
+  z-index: 1200;
+  display: none;
+}
+
+.stat { font-weight: 600; font-size: 14px; }
+canvas { background: #111; border-radius: 6px; }
+</style>
+</head>
+
+<body>
+
+<!-- TOP PANEL -->
+<div id="topPanel">
+  <div class="card shadow">
+    <div class="card-body row g-2 align-items-center">
+
+      <div class="col-md-2">
+        <b>🚆 Train:</b> <span id="trainInfo">NA</span>
+      </div>
+
+      <div class="col-md-2">
+        <b>📅 Date:</b> <span id="dateInfo">NA</span>
+      </div>
+
+      <div class="col-md-3">
+        <label class="form-label mb-0">SPM GPS Data</label>
+        <input type="file" id="spmFile" class="form-control" accept=".csv,.xlsx,.xls">
+      </div>
+
+      <div class="col-md-3">
+        <label class="form-label mb-0">FSD (Home Signals)</label>
+        <input type="file" id="fsdFile" class="form-control" accept=".csv,.xlsx,.xls">
+      </div>
+
+      <div class="col-md-2 d-grid">
+        <button class="btn btn-primary" id="analyzeBtn">
+          Analyze
+        </button>
+      </div>
+
+      <!-- RADIO + STATS -->
+      <div class="col-12 d-flex justify-content-between flex-wrap mt-2">
+
+        <div>
+          <label class="me-3">
+            <input type="radio" name="trainType" checked
+              onchange="setType('PASS')">
+            Passenger (50 kmph)
+          </label>
+
+          <label>
+            <input type="radio" name="trainType"
+              onchange="setType('GOODS')">
+            Goods (30 kmph)
+          </label>
+        </div>
+
+        <div class="stat">Points: <span id="statPoints">0</span></div>
+        <div class="stat">Stops: <span id="statStops">0</span></div>
+        <div class="stat">Homes: <span id="statHomes">0</span></div>
+        <div class="stat">Violations: <span id="statViol">0</span></div>
+        <div class="stat">Max @ Home: <span id="statMaxHome">0</span> kmph</div>
+
+        <button class="btn btn-sm btn-success" onclick="exportViolations()">
+          Export Violations CSV
+        </button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- STOPPAGE ANALYSIS -->
+<div id="stopCard" class="card shadow">
+  <div class="card-header bg-dark text-white">
+    🔴 STOPPAGE ANALYSIS
+  </div>
+  <div class="card-body">
+    <div id="stopInfo" class="text-light mb-2"></div>
+    <canvas id="stopChart" height="200"></canvas>
+  </div>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+/* ================= CONFIG ================= */
+let TRAIN_TYPE = "PASS";
+let LIMIT = 50;
+
+const STOP_SPEED = 1;
+const STOP_MIN_SEC = 20;
+const HOME_MATCH_RADIUS = 80;
+
+/* ================= GLOBALS ================= */
+let map, layerGroup;
+let spmData = [];
+let fsdHomes = [];
+let stopReport = [];
+let violationReport = [];
+
+/* ================= URL PARAMS ================= */
+const params = new URLSearchParams(window.location.search);
+const trainNo = params.get("train") || "NA";
+const dateStr = params.get("date") || "NA";
+
+document.getElementById("trainInfo").innerText = trainNo;
+document.getElementById("dateInfo").innerText = dateStr;
+
+/* ================= MAP INIT ================= */
+map = L.map("map", {
+  center: [22.5, 88.3],
+  zoom: 6,
+  preferCanvas: true
+});
+
+L.tileLayer("https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}", {
+  maxZoom: 19,
+  subdomains: ["mt0","mt1","mt2","mt3"]
+}).addTo(map);
+
+layerGroup = L.layerGroup().addTo(map);
+
+/* ================= ICONS ================= */
+const pinIcon = L.icon({
+  iconUrl: "https://cdn-icons-png.flaticon.com/512/684/684908.png",
+  iconSize: [14, 14],
+  iconAnchor: [7, 14]
+});
+
+const startIcon = L.divIcon({ html: "🟢 START", iconSize: [60, 20] });
+const endIcon   = L.divIcon({ html: "🔵 END", iconSize: [50, 20] });
+const stopIcon  = L.divIcon({ html: "🛑", iconSize: [24, 24] });
+const homeOKIcon   = L.divIcon({ html: "🚦", iconSize: [22, 22] });
+const homeViolIcon= L.divIcon({ html: "🚦", iconSize: [22, 22], className: "text-danger" });
+
+/* ================= HELPERS ================= */
+function setType(t) {
+  TRAIN_TYPE = t;
+  LIMIT = t === "PASS" ? 50 : 30;
+}
+
+function distanceMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) *
+    Math.cos(toRad(lat2)) *
+    Math.sin(dLon / 2) ** 2;
+
+  return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+}
+
+function find(row, keys) {
+  for (let k in row) {
+    const ck = k.toLowerCase().replace(/\s|\./g, "");
+    for (let key of keys)
+      if (ck.includes(key)) return row[k];
+  }
+  return null;
+}
+
+/* ================= PARSER ================= */
+function parseFile(file, callback) {
+  if (!file) return;
+  const ext = file.name.split(".").pop().toLowerCase();
+
+  if (ext === "csv") {
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: res => callback(res.data)
+    });
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = e => {
+    const wb = XLSX.read(new Uint8Array(e.target.result), { type: "array" });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    callback(XLSX.utils.sheet_to_json(sheet, { defval: "" }));
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+/* ================= LOADERS ================= */
+function loadSPM(data) {
+  spmData = [];
+  data.forEach(r => {
+    const lat = parseFloat(find(r, ["latitude", "lat"]));
+    const lon = parseFloat(find(r, ["longitude", "lon"]));
+    const speed = parseFloat(find(r, ["speed"]));
+    const time = find(r, ["logging", "time"]);
+
+    if (isNaN(lat) || isNaN(lon) || isNaN(speed)) return;
+    spmData.push({ lat, lon, speed, time });
+  });
+}
+
+function loadFSD(data) {
+  fsdHomes = [];
+  data.forEach(r => {
+    if (!r.Type || r.Type.toString().toUpperCase() !== "HOME") return;
+
+    const station = r.Station?.toString().trim().toUpperCase();
+    if (!station) return;
+
+    let dirn = "";
+    if (r.DIRN) {
+      const d = r.DIRN.toString().toUpperCase();
+      if (d.includes("UP")) dirn = "UP";
+      else if (d.includes("DN")) dirn = "DN";
+    }
+
+    const lat = parseFloat(r.Latitude);
+    const lon = parseFloat(r.Longitude);
+    if (isNaN(lat) || isNaN(lon)) return;
+
+    fsdHomes.push({ station, dirn, lat, lon });
+  });
+}
+
+/* ================= ANALYZE ================= */
+document.getElementById("analyzeBtn").onclick = () => {
+  const spmFile = document.getElementById("spmFile").files[0];
+  const fsdFile = document.getElementById("fsdFile").files[0];
+
+  if (!spmFile || !fsdFile) {
+    alert("Upload both SPM and FSD files");
+    return;
+  }
+
+  layerGroup.clearLayers();
+  stopReport = [];
+  violationReport = [];
+
+  parseFile(spmFile, data => {
+    loadSPM(data);
+    parseFile(fsdFile, data2 => {
+      loadFSD(data2);
+      runAnalysis();
+    });
+  });
+};
+
+/* ================= CORE ================= */
+function runAnalysis() {
+  let bounds = [];
+  let homesChecked = 0;
+  let homesViol = 0;
+  let maxHomeSpeed = 0;
+
+  let route = [];
+  let stopBuffer = [];
+  let currentStop = null;
+
+  spmData.forEach((p, idx) => {
+    const pos = [p.lat, p.lon];
+    route.push(pos);
+    bounds.push(pos);
+
+    if (idx === 0) {
+      L.marker(pos, { icon: startIcon })
+        .bindPopup(`<b>START</b><br>${p.time}<br>Speed: ${p.speed}`)
+        .addTo(layerGroup);
+    }
+
+    if (idx === spmData.length - 1) {
+      L.marker(pos, { icon: endIcon })
+        .bindPopup(`<b>END</b><br>${p.time}<br>Speed: ${p.speed}`)
+        .addTo(layerGroup);
+    }
+
+    // STOP DETECT
+    if (p.speed <= STOP_SPEED) {
+      stopBuffer.push(p);
+      if (!currentStop) currentStop = { start: p.time, data: [] };
+      currentStop.data.push(p);
+    } else {
+      finalizeStop(stopBuffer, currentStop);
+      stopBuffer = [];
+      currentStop = null;
+    }
+
+    // DRAW PIN
+    L.marker(pos, { icon: pinIcon }).addTo(layerGroup);
+  });
+
+  finalizeStop(stopBuffer, currentStop);
+
+  if (route.length > 1) {
+    L.polyline(route, {
+      color: "#555",
+      weight: 2,
+      opacity: 0.7
+    }).addTo(layerGroup);
+  }
+
+  /* ===== HOME SIGNAL MATCH ===== */
+  fsdHomes.forEach(home => {
+    homesChecked++;
+    const match = findNearestSPM(home);
+    if (!match) return;
+
+    maxHomeSpeed = Math.max(maxHomeSpeed, match.speed);
+    const violated = match.speed > LIMIT;
+    if (violated) homesViol++;
+
+    if (violated) {
+      violationReport.push({
+        Station: home.station,
+        DIRN: home.dirn,
+        Speed: match.speed,
+        Limit: LIMIT,
+        Time: match.time,
+        Distance_m: match.distance
+      });
+    }
+
+    L.marker([home.lat, home.lon], {
+      icon: violated ? homeViolIcon : homeOKIcon
+    })
+    .bindPopup(`
+      <b>HOME SIGNAL</b><br>
+      <b>Station:</b> ${home.station}<br>
+      <b>DIRN:</b> ${home.dirn}<br>
+      <b>Speed:</b> ${match.speed} kmph<br>
+      <b>Limit:</b> ${LIMIT}<br>
+      <b>Status:</b> ${violated ? "🚨 VIOLATION" : "OK"}<br>
+      <b>Distance:</b> ${match.distance} m<br>
+      <b>Time:</b> ${match.time}
+    `)
+    .addTo(layerGroup);
+
+    bounds.push([home.lat, home.lon]);
+  });
+
+  if (bounds.length) {
+    map.fitBounds(bounds, { padding: [40, 40] });
+  }
+
+  // SUMMARY
+  document.getElementById("statPoints").innerText = spmData.length;
+  document.getElementById("statStops").innerText = stopReport.length;
+  document.getElementById("statHomes").innerText = homesChecked;
+  document.getElementById("statViol").innerText = homesViol;
+  document.getElementById("statMaxHome").innerText = maxHomeSpeed.toFixed(1);
+}
+
+/* ================= MATCH ENGINE ================= */
+function findNearestSPM(home) {
+  let best = null;
+  let minDist = Infinity;
+
+  spmData.forEach(p => {
+    const d = distanceMeters(home.lat, home.lon, p.lat, p.lon);
+    if (d < minDist) {
+      minDist = d;
+      best = p;
+    }
+  });
+
+  if (minDist <= HOME_MATCH_RADIUS) {
+    return { ...best, distance: minDist };
+  }
+  return null;
+}
+
+/* ================= STOP FINALIZER ================= */
+function finalizeStop(buffer, meta) {
+  if (!buffer.length || !meta) return;
+  if (buffer.length < STOP_MIN_SEC) return;
+
+  const avgLat = buffer.reduce((s, p) => s + p.lat, 0) / buffer.length;
+  const avgLon = buffer.reduce((s, p) => s + p.lon, 0) / buffer.length;
+
+  const stopObj = {
+    start: meta.start,
+    end: buffer[buffer.length - 1].time,
+    duration: buffer.length,
+    data: meta.data
+  };
+
+  stopReport.push(stopObj);
+
+  L.marker([avgLat, avgLon], { icon: stopIcon })
+    .bindPopup(`
+      <b>STOP EVENT</b><br>
+      Start: ${stopObj.start}<br>
+      End: ${stopObj.end}<br>
+      Duration: ${stopObj.duration} sec<br>
+      <i>Click marker for braking analysis</i>
+    `)
+    .on("click", () => showStopAnalysis(stopObj))
+    .addTo(layerGroup);
+}
+
+/* ================= STOP ANALYSIS ================= */
+function showStopAnalysis(stop) {
+  document.getElementById("stopCard").style.display = "block";
+
+  document.getElementById("stopInfo").innerHTML = `
+    <b>Start:</b> ${stop.start}<br>
+    <b>End:</b> ${stop.end}<br>
+    <b>Duration:</b> ${stop.duration} sec
+  `;
+
+  const canvas = document.getElementById("stopChart");
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  ctx.strokeStyle = "#00ff99";
+  ctx.beginPath();
+
+  stop.data.forEach((p, i) => {
+    const x = i * (canvas.width / stop.data.length);
+    const y = canvas.height - (p.speed * 3);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+
+  ctx.stroke();
+}
+
+/* ================= EXPORT ================= */
+function exportViolations() {
+  if (!violationReport.length) {
+    alert("No violations found");
+    return;
+  }
+
+  let csv = "Station,DIRN,Speed,Limit,Time,Distance(m)\n";
+  violationReport.forEach(v => {
+    csv += `${v.Station},${v.DIRN},${v.Speed},${v.Limit},${v.Time},${v.Distance_m}\n`;
+  });
+
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `home_violations_${trainNo}_${dateStr}.csv`;
+  a.click();
+
+  URL.revokeObjectURL(url);
+}
+</script>
+
+</body>
+</html>
