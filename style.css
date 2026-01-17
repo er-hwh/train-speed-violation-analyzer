@@ -86,3 +86,7 @@ footer {
 canvas {
   min-height: 280px;
 }
+
+#analysisDate {
+  font-size: 15px;
+}

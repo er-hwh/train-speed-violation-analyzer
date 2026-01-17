@@ -20,25 +20,13 @@
 </head>
 
 <body class="bg-light">
-
-<!-- NAVBAR -->
-<nav class="navbar navbar-dark bg-primary shadow-sm">
-  <div class="container-fluid">
-    <span class="navbar-brand fw-bold">
-      <i class="fa-solid fa-train"></i>
-      Train Speed Violation Analyzer
-    </span>
-  </div>
-</nav>
-
-<div class="container-fluid my-4 px-4 px-lg-5">
-
-  <!-- UPLOAD -->
-  <div class="card shadow-sm mb-4">
-      <div class="card-header fw-bold d-flex justify-content-between align-items-center">
-      <span>
         <i class="fa-solid fa-file-csv text-success"></i>
         CSV Upload
+      </span>
+
+      <!-- CENTER (DATE) -->
+      <span class="mx-auto text-primary fw-bold" id="analysisDate">
+        Analysis of —
       </span>
 
       <!-- BUTTON ON TOP RIGHT -->
@@ -223,7 +211,7 @@
             <tr>
               <th>Sl</th><th>Loco</th><th>Train</th><th>Viol</th>
               <th>Station</th><th>DIRN</th><th>Speed</th><th>Event</th>
-              <th>Lat</th><th>Lon</th><th>Error (m)</th><th>Crew Name</th><th>Crew ID</th>
+              <th>Lat</th><th>Lon</th><th>Err Dist(km)</th><th>Crew Name</th><th>Crew ID</th>
             </tr>
           </thead>
           <tbody id="passengerTable"></tbody>
@@ -314,7 +302,7 @@
 </div>
 
 
-
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
 <!-- Bootstrap -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
@@ -330,7 +318,6 @@
 
 <!-- Your App -->
 <script src="app.js"></script>
-
 
 </body>
 </html>

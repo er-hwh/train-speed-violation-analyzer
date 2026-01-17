@@ -1,5 +1,5 @@
-const PASS_LIMIT = 50, GOODS_LIMIT = 30;
 const PASS_SEVERE = 80;
+const PASS_LIMIT = 50, GOODS_LIMIT = 30;
 
 const PASS_PREFIX = ["22","25","30","37","39","19","35","m2"];
 const GOODS_PREFIX = ["23","27","28","31","32","33","34","41","42","43","44","51","60","65"];
@@ -20,27 +20,110 @@ window.onload = () => initMap();
 
 /* ================= MAP ================= */
 function initMap() {
-  map = L.map("map").setView([22.57, 88.36], 6);
 
-  const normalMap = L.tileLayer(
+  /* ================= BASE MAP LAYERS ================= */
+
+  const googleHybrid = L.tileLayer(
+    "https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}",
+    {
+      maxZoom: 19,              // 🔴 এর বেশি না
+      minZoom: 4,
+      subdomains: ["mt0","mt1","mt2","mt3"],
+      detectRetina: true,       // 🔥 zoom এ sharp
+      updateWhenZooming: false, // 🔥 blur কমে
+      updateWhenIdle: true
+    }
+  );
+
+  const osm = L.tileLayer(
     "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-    { attribution: "© OpenStreetMap" }
+    {
+      maxZoom: 19,
+      attribution: "© OpenStreetMap"
+    }
   );
 
-  const earthMap = L.tileLayer(
-    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    { attribution: "© Esri" }
-  );
+  /* ================= MAP INIT ================= */
 
-  normalMap.addTo(map);
+  map = L.map("map", {
+    center: [22.57, 88.36],
+    zoom: 6,
+    layers: [googleHybrid],
+    preferCanvas: true,
 
-  L.control.layers({
-    "🗺️ Normal View": normalMap,
-    "🌍 Earth View": earthMap
-  }).addTo(map);
+    zoomAnimation: true,
+    fadeAnimation: true,
+    markerZoomAnimation: false, // 🔥 marker blur বন্ধ
+    inertia: true,
+    inertiaDeceleration: 3000
+  });
+
+  /* ================= LAYER TOGGLE ================= */
+
+  L.control.layers(
+    {
+      "🛰️ Satellite (Clear)": googleHybrid,
+      "🗺️ Street": osm
+    },
+    null,
+    { collapsed: false }
+  ).addTo(map);
+
+  /* ================= MARKER GROUP ================= */
 
   markerLayer = L.layerGroup().addTo(map);
+
+  /* ================= ZOOM SMOOTHNESS ================= */
+
+  map.options.zoomSnap  = 0.25;  // fractional zoom
+  map.options.zoomDelta = 0.5;   // smooth scroll
+
+  map.on("zoomend", () => {
+    markerLayer.eachLayer(layer => {
+      if (layer.setRadius && layer.options) {
+        const severe = layer.options.color === "#b00000";
+        layer.setRadius(getMarkerRadius(severe));
+      }
+    });
+  });
+
 }
+
+
+function parseFile(file, callback) {
+  if (!file) return;   // ✅ SAFETY GUARD
+
+  const ext = file.name.split(".").pop().toLowerCase();
+
+  // ================= CSV =================
+  if (ext === "csv") {
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: res => callback(res.data)
+    });
+    return;
+  }
+
+  // ================= XLSX =================
+  if (ext === "xlsx" || ext === "xls") {
+    const reader = new FileReader();
+
+    reader.onload = e => {
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, { type: "array" });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+      callback(json);
+    };
+
+    reader.readAsArrayBuffer(file);
+    return;
+  }
+
+  alert("Unsupported file format: " + ext);
+}
+
 
 /* ================= CSV BUTTON ================= */
 document.getElementById("analyzeBtn").addEventListener("click", () => {
@@ -60,32 +143,15 @@ document.getElementById("analyzeBtn").addEventListener("click", () => {
   cmsLocoMap  = {};
 
   // 1️⃣ Load FSD if present
-  if (fsdFile) {
-    Papa.parse(fsdFile, {
-      header: true,
-      skipEmptyLines: true,
-      complete: fsdRes => loadHomeSignals(fsdRes.data)
-    });
-  }
+  parseFile(fsdFile, loadHomeSignals);
 
   // 2️⃣ Load CMS if present
-  if (cmsFile) {
-    Papa.parse(cmsFile, {
-      header: true,
-      skipEmptyLines: true,
-      complete: cmsRes => loadCMSData(cmsRes.data)
-    });
-  }
+  parseFile(cmsFile, loadCMSData);
 
   // 3️⃣ Always analyze RTIS
-  Papa.parse(rtisFile, {
-    header: true,
-    skipEmptyLines: true,
-    complete: rtisRes => analyze(rtisRes.data)
-  });
+  parseFile(rtisFile, analyze);
 
 });
-
 
 
 /* ================= HELPERS ================= */
@@ -140,19 +206,42 @@ function loadHomeSignals(data) {
   homeSignalMap = {};
 
   data.forEach(r => {
-    if (r.Type && r.Type.toUpperCase() === "HOME") {
-      const stn  = r.Station?.trim();
-      const dirn = r.DIRN?.trim().toUpperCase();
+    if (!r.Type || r.Type.toString().toUpperCase() !== "HOME") return;
 
-      if (stn && dirn) {
-        homeSignalMap[`${stn}_${dirn}`] = {
-          lat: parseFloat(r.Latitude),
-          lon: parseFloat(r.Longitude)
-        };
-      }
+    const station =
+      r.Station?.toString().trim().toUpperCase();
+
+    if (!station) return;
+
+    let dirn = "";
+
+    // 1️⃣ DIRN column (NEW format)
+    if (r.DIRN) {
+      const d = r.DIRN.toString().toUpperCase();
+      if (d.includes("UP")) dirn = "UP";
+      else if (d.includes("DN")) dirn = "DN";
     }
+
+    // 2️⃣ Fallback Station-DIR
+    if (!dirn && r["Station-DIR"]) {
+      const sd = r["Station-DIR"].toString().toUpperCase();
+      if (sd.endsWith("-UP")) dirn = "UP";
+      else if (sd.endsWith("-DN")) dirn = "DN";
+    }
+
+    if (!dirn) return;
+
+    const lat = parseFloat(r.Latitude);
+    const lon = parseFloat(r.Longitude);
+    if (isNaN(lat) || isNaN(lon)) return;
+
+    // ✅ NORMALIZED KEY
+    homeSignalMap[`${station}_${dirn}`] = { lat, lon };
   });
+
+  console.log("Home signals loaded:", homeSignalMap);
 }
+
 
 /* ================= DISTANCE ================= */
 function distanceMeters(lat1, lon1, lat2, lon2) {
@@ -171,8 +260,36 @@ function distanceMeters(lat1, lon1, lat2, lon2) {
   return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
+function formatErrorKm(meters) {
+  if (meters === "NA" || meters === null || meters === undefined) return "NA";
+  const km = meters / 1000;
+  return km.toFixed(2);   // "00.00" format
+}
+
+function getMarkerRadius(severe) {
+  const z = map.getZoom();
+  const base = severe ? 7 : 5;
+  return Math.max(
+    4,
+    Math.min(base + (z - 6) * 0.35, severe ? 9 : 7)
+  );
+
+}
+
 /* ================= ANALYZE ================= */
 function analyze(data) {
+  // ===== SHOW ANALYSIS DATE =====
+  if (data.length > 0) {
+    const rawTime = find(data[0], ["time", "event"]);
+    if (rawTime && rawTime !== "NA") {
+      const d = new Date(rawTime);
+      if (!isNaN(d)) {
+        document.getElementById("analysisDate").innerText =
+          "Analysis of " + d.toLocaleDateString("en-GB");
+      }
+    }
+  }
+
   const pass = {}, goods = {};
   pSummary = { trains: 0, viol: 0, max: 0 };
   gSummary = { trains: 0, viol: 0, max: 0 };
@@ -203,7 +320,7 @@ function analyze(data) {
 
     const severe = type === "PASS" ? speed >= PASS_SEVERE : speed >= 50;
 
-    const station = find(r, ["station"]);
+    const station = find(r, ["station"])?.toString().trim().toUpperCase();
     const latVal  = parseFloat(find(r, ["lat"]));
     const lonVal  = parseFloat(find(r, ["lon"]));
     const dirn    = getDirection(train);
@@ -310,20 +427,70 @@ function analyze(data) {
     /* ================= MAP ================= */
     if (!isNaN(latVal) && !isNaN(lonVal)) {
       const marker = L.circleMarker([latVal, lonVal], {
-        radius: severe ? 9 : 6,
-        color: severe ? "#d00000" : (type === "PASS" ? "#1f4e79" : "#1a8f3a"),
-        fillOpacity: 0.9
-      }).bindPopup(
-        `<b>Train:</b> ${train}<br>
-         <b>Loco:</b> ${loco}<br>
-         <b>Type:</b> ${type}<br>
-         <b>Station:</b> ${station}<br>
-         <b>Speed:</b> ${speed} kmph<br>
-         <b>Error:</b> ${errorDist} m<br>
-         <b>Crew:</b> ${crewName} (${crewId})<br>
-         <b>Time:</b> ${row.time}`
-      );
+        radius: getMarkerRadius(severe),
+        color: severe ? "#b00000" : (type === "PASS" ? "#0047ab" : "#1a8f3a"),
+        weight: 2,
+        fillOpacity: 0.95
+      }).bindPopup(`
+        <div style="
+          font-family: Segoe UI, Arial;
+          font-size: 13px;
+          min-width: 230px;
+        ">
 
+          <div style="
+            font-weight: 600;
+            margin-bottom: 6px;
+            color: ${severe ? "#b00000" : (type === "PASS" ? "#0047ab" : "#1a8f3a")};
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 4px;
+          ">
+            🚦 Signal Overspeed
+          </div>
+
+          <table style="width:100%; border-collapse: collapse;">
+            <tr>
+              <td><b>🚆 Train</b></td>
+              <td>${train}</td>
+            </tr>
+            <tr>
+              <td><b>🚉 Loco</b></td>
+              <td>${loco}</td>
+            </tr>
+            <tr>
+              <td><b>📍 Station</b></td>
+              <td>${station}</td>
+            </tr>
+            <tr>
+              <td><b>⬆⬇ DIRN</b></td>
+              <td>${dirn || "NA"}</td>
+            </tr>
+            <tr>
+              <td><b>⚡ Speed</b></td>
+              <td style="
+                font-weight: 600;
+                color: ${severe ? "#b00000" : "#000"};
+              ">
+                ${speed} kmph
+              </td>
+            </tr>
+            <tr>
+              <td><b>📏 Error</b></td>
+              <td>${formatErrorKm(errorDist)} km</td>
+            </tr>
+            <tr>
+              <td><b>👷 Crew</b></td>
+              <td>${crewName} (${crewId})</td>
+            </tr>
+            <tr>
+              <td><b>🕒 Time</b></td>
+              <td>${row.time}</td>
+            </tr>
+          </table>
+
+        </div>
+      `);
+            
       markerLayer.addLayer(marker);
       bounds.push([latVal, lonVal]);
     }
@@ -341,7 +508,10 @@ function analyze(data) {
   updateViolationLeaders(pass, goods);
   drawCharts();
 
-  if (bounds.length) map.fitBounds(bounds);
+  if (bounds.length) {
+    map.fitBounds(bounds, { padding: [40, 40] });
+  }
+
 }
 
 /* ================= SUMMARY ================= */
@@ -529,7 +699,7 @@ function render(map, tid) {
         <td>${r.evt || ""}</td>
         <td>${r.lat || ""}</td>
         <td>${r.lon || ""}</td>
-        <td>${r.error || "NA"}</td>
+        <td>${formatErrorKm(r.error)}</td>
         <td>${r.crewName || "NA"}</td>
         <td>${r.crewId || "NA"}</td>
       `;
@@ -635,7 +805,7 @@ function openViolationModal(name, scope, type) {
           <td>${r.dirn || "NA"}</td>
           <td>${r.station}</td>
           <td>${r.speed}</td>
-          <td>${r.error}</td>
+          <td>${formatErrorKm(r.error)}</td>
           <td>${r.time}</td>
           <td>${r.crewName || "NA"}</td>
           <td>${r.crewId || "NA"}</td>
