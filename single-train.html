@@ -4,39 +4,35 @@
 <meta charset="UTF-8">
 <title>Single Train – Home Signal Violation Analysis</title>
 
-<!-- Bootstrap -->
+<!-- BOOTSTRAP -->
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 
-<!-- Leaflet -->
+<!-- LEAFLET -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 
-<!-- PapaParse -->
-<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-
-<!-- XLSX -->
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-
 <style>
-html, body {
-  height: 100%;
-  margin: 0;
-}
-#map {
-  height: 100vh;
-  width: 100%;
-}
+html, body { height:100%; margin:0; }
+#map { height:100vh; width:100%; }
+
 #topPanel {
-  position: absolute;
-  top: 10px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 1000;
-  width: 96%;
-  max-width: 1200px;
+  position:absolute;
+  top:10px;
+  left:50%;
+  transform:translateX(-50%);
+  z-index:1000;
+  width:96%;
+  max-width:1300px;
 }
+
 .stat {
-  font-weight: 600;
-  font-size: 14px;
+  font-weight:700;
+  font-size:15px;
+}
+
+.tooltip-card {
+  font-family:Segoe UI, Arial;
+  font-size:13px;
+  line-height:1.4;
 }
 </style>
 </head>
@@ -48,15 +44,8 @@ html, body {
   <div class="card shadow">
     <div class="card-body row g-2 align-items-center">
 
-      <div class="col-md-2">
-        <b>🚆 Train:</b>
-        <span id="trainInfo">NA</span>
-      </div>
-
-      <div class="col-md-2">
-        <b>📅 Date:</b>
-        <span id="dateInfo">NA</span>
-      </div>
+      <div class="col-md-2"><b>🚆 Train:</b> <span id="trainInfo">NA</span></div>
+      <div class="col-md-2"><b>📅 Date:</b> <span id="dateInfo">NA</span></div>
 
       <div class="col-md-3">
         <label class="form-label mb-0">SPM GPS Data</label>
@@ -69,17 +58,28 @@ html, body {
       </div>
 
       <div class="col-md-2 d-grid">
-        <button class="btn btn-primary" id="analyzeBtn">
-          Analyze
-        </button>
+        <button class="btn btn-primary" id="analyzeBtn">Analyze</button>
       </div>
 
-      <div class="col-12 mt-2 d-flex justify-content-between flex-wrap">
-        <div class="stat">Points: <span id="statPoints">0</span></div>
-        <div class="stat">Stops: <span id="statStops">0</span></div>
-        <div class="stat">Homes: <span id="statHomes">0</span></div>
-        <div class="stat">Violations: <span id="statViol">0</span></div>
-        <div class="stat">Max @ Home: <span id="statMaxHome">0</span> kmph</div>
+      <div class="col-12 mt-2 d-flex justify-content-between align-items-center flex-wrap">
+        <div>
+          <label class="me-2">
+            <input type="radio" name="trainType" value="PASS" checked>
+            Passenger (50 kmph)
+          </label>
+          <label class="ms-2">
+            <input type="radio" name="trainType" value="GOODS">
+            Goods (30 kmph)
+          </label>
+        </div>
+
+        <div class="stat text-danger">
+          🚨 Violations: <span id="statViol">0</span>
+        </div>
+
+        <div class="stat text-primary">
+          ⚡ Max @ Home: <span id="statMaxHome">0</span> kmph
+        </div>
 
         <button class="btn btn-sm btn-success" onclick="exportViolations()">
           Export Violations CSV
@@ -93,17 +93,19 @@ html, body {
 <!-- MAP -->
 <div id="map"></div>
 
-<!-- Leaflet -->
+<!-- SCRIPTS (ORDER IS IMPORTANT) -->
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script>
 /* ================= CONFIG ================= */
-const PASS_LIMIT = 60;
+const PASS_LIMIT = 50;
 const GOODS_LIMIT = 30;
 
 const STOP_SPEED = 1;
 const STOP_MIN_SEC = 20;
-const HOME_MATCH_RADIUS = 80; // meters
+const HOME_RADIUS = 80;
 
 /* ================= GLOBALS ================= */
 let map, layerGroup;
@@ -128,65 +130,43 @@ map = L.map("map", {
 });
 
 L.tileLayer("https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}", {
-  maxZoom: 19,
+  maxZoom: 20,
+  detectRetina: true,
   subdomains: ["mt0","mt1","mt2","mt3"]
 }).addTo(map);
 
 layerGroup = L.layerGroup().addTo(map);
 
 /* ================= ICONS ================= */
+const startIcon = L.divIcon({ html:"🟢 START", iconSize:[70,20], className:"" });
+const endIcon   = L.divIcon({ html:"🔴 END", iconSize:[60,20], className:"" });
+
 const homeOKIcon = L.divIcon({
-  html: "🟢",
-  iconSize: [20, 20],
-  className: ""
+  html: "🚦",
+  iconSize: [24,24],
+  className: "text-success"
 });
 
 const homeViolIcon = L.divIcon({
-  html: "🔴",
-  iconSize: [20, 20],
-  className: ""
+  html: "🚦",
+  iconSize: [24,24],
+  className: "text-danger"
 });
 
-/* ================= PARSER ================= */
-function parseFile(file, callback) {
-  if (!file) return;
-
-  const ext = file.name.split(".").pop().toLowerCase();
-
-  if (ext === "csv") {
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: res => callback(res.data)
-    });
-    return;
-  }
-
-  if (ext === "xlsx" || ext === "xls") {
-    const reader = new FileReader();
-    reader.onload = e => {
-      const wb = XLSX.read(new Uint8Array(e.target.result), { type: "array" });
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      const json = XLSX.utils.sheet_to_json(sheet, { defval: "" });
-      callback(json);
-    };
-    reader.readAsArrayBuffer(file);
-  }
-}
+const stopIcon = L.divIcon({
+  html: "📍",
+  iconSize: [24,24],
+  className: ""
+});
 
 /* ================= HELPERS ================= */
 function find(row, keys) {
   for (let k in row) {
-    const ck = k.toLowerCase().replace(/\s|\./g, "");
+    const ck = k.toLowerCase().replace(/\s|\./g,"");
     for (let key of keys)
       if (ck.includes(key)) return row[k];
   }
   return null;
-}
-
-function detectType(train) {
-  if (!train) return "PASS";
-  return /^\d+$/.test(train.toString()) ? "PASS" : "GOODS";
 }
 
 function distanceMeters(lat1, lon1, lat2, lon2) {
@@ -196,58 +176,58 @@ function distanceMeters(lat1, lon1, lat2, lon2) {
   const dLon = toRad(lon2 - lon1);
 
   const a =
-    Math.sin(dLat / 2) ** 2 +
+    Math.sin(dLat/2)**2 +
     Math.cos(toRad(lat1)) *
     Math.cos(toRad(lat2)) *
-    Math.sin(dLon / 2) ** 2;
+    Math.sin(dLon/2)**2;
 
-  return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+  return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+}
+
+/* ================= PARSER ================= */
+function parseFile(file, callback) {
+  if (!file) return;
+  const ext = file.name.split(".").pop().toLowerCase();
+
+  if (ext === "csv") {
+    Papa.parse(file, {
+      header:true,
+      skipEmptyLines:true,
+      complete: res => callback(res.data)
+    });
+  } else {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const wb = XLSX.read(new Uint8Array(e.target.result), { type:"array" });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      callback(XLSX.utils.sheet_to_json(sheet, { defval:"" }));
+    };
+    reader.readAsArrayBuffer(file);
+  }
 }
 
 /* ================= LOADERS ================= */
 function loadSPM(data) {
   spmData = [];
-
   data.forEach(r => {
-    const lat = parseFloat(find(r, ["latitude", "lat"]));
-    const lon = parseFloat(find(r, ["longitude", "lon"]));
-    const speed = parseFloat(find(r, ["speed"]));
-    const time = find(r, ["logging", "time"]);
-
-    if (isNaN(lat) || isNaN(lon) || isNaN(speed)) return;
-
-    spmData.push({ lat, lon, speed, time });
+    const lat = parseFloat(find(r,["lat","latitude"]));
+    const lon = parseFloat(find(r,["lon","longitude"]));
+    const speed = parseFloat(find(r,["speed"]));
+    const time = find(r,["time","logging"]);
+    if (!isNaN(lat) && !isNaN(lon) && !isNaN(speed))
+      spmData.push({ lat, lon, speed, time });
   });
 }
 
 function loadFSD(data) {
   fsdHomes = [];
-
   data.forEach(r => {
-    if (!r.Type || r.Type.toString().toUpperCase() !== "HOME") return;
-
-    const station = r.Station?.toString().trim().toUpperCase();
-    if (!station) return;
-
-    let dirn = "";
-
-    if (r.DIRN) {
-      const d = r.DIRN.toString().toUpperCase();
-      if (d.includes("UP")) dirn = "UP";
-      else if (d.includes("DN")) dirn = "DN";
-    }
-
-    if (!dirn && r["Station-DIR"]) {
-      const sd = r["Station-DIR"].toString().toUpperCase();
-      if (sd.endsWith("-UP")) dirn = "UP";
-      else if (sd.endsWith("-DN")) dirn = "DN";
-    }
-
+    if (!r.Type || r.Type.toUpperCase() !== "HOME") return;
     const lat = parseFloat(r.Latitude);
     const lon = parseFloat(r.Longitude);
-    if (isNaN(lat) || isNaN(lon)) return;
-
-    fsdHomes.push({ station, dirn, lat, lon });
+    const station = r.Station?.toUpperCase();
+    if (!isNaN(lat) && !isNaN(lon))
+      fsdHomes.push({ station, lat, lon });
   });
 }
 
@@ -256,200 +236,184 @@ document.getElementById("analyzeBtn").onclick = () => {
   const spmFile = document.getElementById("spmFile").files[0];
   const fsdFile = document.getElementById("fsdFile").files[0];
 
-  if (!spmFile || !fsdFile) {
-    alert("Upload both SPM and FSD files");
-    return;
-  }
+  if (!spmFile || !fsdFile) return alert("Upload both files");
 
   layerGroup.clearLayers();
   stopReport = [];
   violationReport = [];
 
-  parseFile(spmFile, data => {
-    loadSPM(data);
-    parseFile(fsdFile, data2 => {
-      loadFSD(data2);
+  parseFile(spmFile, d1 => {
+    loadSPM(d1);
+    parseFile(fsdFile, d2 => {
+      loadFSD(d2);
       runAnalysis();
     });
   });
 };
 
 /* ================= CORE ================= */
+function getLimit() {
+  const sel = document.querySelector("input[name='trainType']:checked").value;
+  return sel === "PASS" ? PASS_LIMIT : GOODS_LIMIT;
+}
+
 function runAnalysis() {
+  const LIMIT = getLimit();
   let bounds = [];
-  let homesChecked = 0;
-  let homesViol = 0;
-  let maxHomeSpeed = 0;
-
-  const type = detectType(trainNo);
-  const LIMIT = type === "PASS" ? PASS_LIMIT : GOODS_LIMIT;
-
-  /* ===== ROUTE & STOPS ===== */
   let route = [];
   let stopBuffer = [];
   let currentStop = null;
 
+  /* ===== ROUTE & STOP DETECT ===== */
   spmData.forEach(p => {
     const pos = [p.lat, p.lon];
     route.push(pos);
     bounds.push(pos);
 
-    // STOP DETECT
     if (p.speed <= STOP_SPEED) {
       stopBuffer.push(p);
-      if (!currentStop) currentStop = { start: p.time };
+      if (!currentStop)
+        currentStop = { start:p.time, lat:p.lat, lon:p.lon };
     } else {
       finalizeStop(stopBuffer, currentStop);
       stopBuffer = [];
       currentStop = null;
     }
-
-    // DRAW POINT
-    L.circleMarker(pos, {
-      radius: 3,
-      color: "#1E90FF",
-      weight: 1,
-      fillOpacity: 0.8
-    }).addTo(layerGroup);
   });
-
   finalizeStop(stopBuffer, currentStop);
 
-  if (route.length > 1) {
-    L.polyline(route, {
-      color: "#555",
-      weight: 2,
-      opacity: 0.7
-    }).addTo(layerGroup);
+  /* ===== ROUTE LINE ===== */
+  L.polyline(route, { color:"#1E90FF", weight:3 }).addTo(layerGroup);
+
+  /* ===== START / END ===== */
+  if (route.length) {
+    L.marker(route[0], { icon:startIcon }).addTo(layerGroup);
+    L.marker(route[route.length-1], { icon:endIcon }).addTo(layerGroup);
   }
 
-  /* ===== HOME SIGNAL MATCH ===== */
+  /* ===== HOME → STOP VIOLATION LOGIC ===== */
+  let homesViol = 0;
+  let maxSpeed = 0;
+
   fsdHomes.forEach(home => {
-    homesChecked++;
+    const stop = findNearestStop(home);
+    if (!stop) return;
 
-    const match = findNearestSPM(home);
-    if (!match) return;
+    const cross = findSPMBeforeStop(home, stop);
+    if (!cross) return;
 
-    maxHomeSpeed = Math.max(maxHomeSpeed, match.speed);
-
-    const violated = match.speed > LIMIT;
+    maxSpeed = Math.max(maxSpeed, cross.speed);
+    const violated = cross.speed > LIMIT;
     if (violated) homesViol++;
 
     if (violated) {
       violationReport.push({
         Station: home.station,
-        DIRN: home.dirn,
-        Speed: match.speed,
+        Speed: cross.speed,
         Limit: LIMIT,
-        Time: match.time,
-        Distance_m: match.distance
+        Time: cross.time
       });
     }
 
+    /* HOME MARKER */
     L.marker([home.lat, home.lon], {
       icon: violated ? homeViolIcon : homeOKIcon
     })
-    .bindPopup(`
-      <b>HOME SIGNAL</b><br>
-      <b>Station:</b> ${home.station}<br>
-      <b>DIRN:</b> ${home.dirn}<br>
-      <b>Speed:</b> ${match.speed} kmph<br>
-      <b>Limit:</b> ${LIMIT}<br>
-      <b>Status:</b> ${violated ? "🚨 VIOLATION" : "OK"}<br>
-      <b>Distance:</b> ${match.distance} m<br>
-      <b>Time:</b> ${match.time}
-    `)
+    .bindTooltip(
+      `🚦 HOME SIGNAL<br><b>${home.station}</b><br>
+       Speed: ${cross.speed} / ${LIMIT} kmph<br>
+       Status: ${violated ? "VIOLATION" : "OK"}`,
+      { sticky:true }
+    )
     .addTo(layerGroup);
 
-    bounds.push([home.lat, home.lon]);
+    /* HOME → STOP LINE */
+    L.polyline(
+      [[home.lat, home.lon],[stop.lat, stop.lon]],
+      { color: violated ? "#ff0000" : "#ff9900", weight:2, dashArray:"5,5" }
+    ).addTo(layerGroup);
   });
 
-  if (bounds.length) {
-    map.fitBounds(bounds, { padding: [40, 40] });
-  }
-
-  // SUMMARY
-  document.getElementById("statPoints").innerText = spmData.length;
-  document.getElementById("statStops").innerText = stopReport.length;
-  document.getElementById("statHomes").innerText = homesChecked;
   document.getElementById("statViol").innerText = homesViol;
-  document.getElementById("statMaxHome").innerText = maxHomeSpeed.toFixed(1);
+  document.getElementById("statMaxHome").innerText = maxSpeed.toFixed(1);
+
+  map.fitBounds(bounds, { padding:[40,40] });
 }
 
-/* ================= MATCH ENGINE ================= */
-function findNearestSPM(home) {
-  let best = null;
-  let minDist = Infinity;
+/* ================= MATCH ================= */
+function findNearestStop(home) {
+  let best = null, min = Infinity;
+  stopReport.forEach(s => {
+    const d = distanceMeters(home.lat, home.lon, s.lat, s.lon);
+    if (d < min && d < HOME_RADIUS*3) {
+      min = d;
+      best = s;
+    }
+  });
+  return best;
+}
 
+function findSPMBeforeStop(home, stop) {
+  let best = null, min = Infinity;
   spmData.forEach(p => {
+    if (p.time >= stop.start) return;
     const d = distanceMeters(home.lat, home.lon, p.lat, p.lon);
-    if (d < minDist) {
-      minDist = d;
+    if (d < min) {
+      min = d;
       best = p;
     }
   });
-
-  if (minDist <= HOME_MATCH_RADIUS) {
-    return {
-      ...best,
-      distance: minDist
-    };
-  }
-  return null;
+  return best;
 }
 
 /* ================= STOP FINALIZER ================= */
 function finalizeStop(buffer, meta) {
   if (!buffer.length || !meta) return;
+  if (buffer.length < STOP_MIN_SEC) return;
 
+  const avgLat = buffer.reduce((s,p)=>s+p.lat,0)/buffer.length;
+  const avgLon = buffer.reduce((s,p)=>s+p.lon,0)/buffer.length;
   const duration = buffer.length;
-  if (duration < STOP_MIN_SEC) return;
 
-  const avgLat = buffer.reduce((s, p) => s + p.lat, 0) / buffer.length;
-  const avgLon = buffer.reduce((s, p) => s + p.lon, 0) / buffer.length;
-
-  stopReport.push({
+  const stopObj = {
     start: meta.start,
-    end: buffer[buffer.length - 1].time,
-    duration,
-    lat: avgLat.toFixed(6),
-    lon: avgLon.toFixed(6)
-  });
+    end: buffer[buffer.length-1].time,
+    lat: avgLat,
+    lon: avgLon,
+    duration
+  };
 
-  L.circleMarker([avgLat, avgLon], {
-    radius: 9,
-    color: "#000",
-    fillColor: "#8B0000",
-    fillOpacity: 0.9,
-    weight: 2
-  })
-  .bindPopup(`
-    <b>STOP EVENT</b><br>
-    <b>Start:</b> ${meta.start}<br>
-    <b>End:</b> ${buffer[buffer.length - 1].time}<br>
-    <b>Duration:</b> ${duration} sec
-  `)
-  .addTo(layerGroup);
+  stopReport.push(stopObj);
+
+  L.marker([avgLat, avgLon], { icon:stopIcon })
+    .bindTooltip(
+      `<div class="tooltip-card">
+        <b>📍 STOPPAGE</b><br>
+        <b>Start:</b> ${stopObj.start}<br>
+        <b>End:</b> ${stopObj.end}<br>
+        <b>Duration:</b> ${duration} sec<br>
+        <i>Approach from previous HOME</i>
+      </div>`,
+      { sticky:true, direction:"top", opacity:0.95 }
+    )
+    .addTo(layerGroup);
 }
 
 /* ================= EXPORT ================= */
 function exportViolations() {
-  if (!violationReport.length) {
-    alert("No violations found");
-    return;
-  }
+  if (!violationReport.length) return alert("No violations");
 
-  let csv = "Station,DIRN,Speed,Limit,Time,Distance(m)\n";
+  let csv = "Station,Speed,Limit,Time\n";
   violationReport.forEach(v => {
-    csv += `${v.Station},${v.DIRN},${v.Speed},${v.Limit},${v.Time},${v.Distance_m}\n`;
+    csv += `${v.Station},${v.Speed},${v.Limit},${v.Time}\n`;
   });
 
-  const blob = new Blob([csv], { type: "text/csv" });
+  const blob = new Blob([csv], { type:"text/csv" });
   const url = URL.createObjectURL(blob);
 
   const a = document.createElement("a");
   a.href = url;
-  a.download = `home_violations_${trainNo}_${dateStr}.csv`;
+  a.download = `violations_${trainNo}_${dateStr}.csv`;
   a.click();
 
   URL.revokeObjectURL(url);
