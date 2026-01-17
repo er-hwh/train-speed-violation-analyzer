@@ -2,18 +2,29 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Single Train – Home Signal & Stoppage Analysis</title>
+<title>Single Train – Home Signal Violation Analysis</title>
 
+<!-- Bootstrap -->
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+
+<!-- Leaflet -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 
+<!-- PapaParse -->
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+<!-- XLSX -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
 <style>
-html, body { height: 100%; margin: 0; }
-#map { height: 100vh; }
-
+html, body {
+  height: 100%;
+  margin: 0;
+}
+#map {
+  height: 100vh;
+  width: 100%;
+}
 #topPanel {
   position: absolute;
   top: 10px;
@@ -21,20 +32,12 @@ html, body { height: 100%; margin: 0; }
   transform: translateX(-50%);
   z-index: 1000;
   width: 96%;
-  max-width: 1300px;
+  max-width: 1200px;
 }
-
-#stopCard {
-  position: absolute;
-  right: 15px;
-  bottom: 15px;
-  width: 420px;
-  z-index: 1200;
-  display: none;
+.stat {
+  font-weight: 600;
+  font-size: 14px;
 }
-
-.stat { font-weight: 600; font-size: 14px; }
-canvas { background: #111; border-radius: 6px; }
 </style>
 </head>
 
@@ -46,11 +49,13 @@ canvas { background: #111; border-radius: 6px; }
     <div class="card-body row g-2 align-items-center">
 
       <div class="col-md-2">
-        <b>🚆 Train:</b> <span id="trainInfo">NA</span>
+        <b>🚆 Train:</b>
+        <span id="trainInfo">NA</span>
       </div>
 
       <div class="col-md-2">
-        <b>📅 Date:</b> <span id="dateInfo">NA</span>
+        <b>📅 Date:</b>
+        <span id="dateInfo">NA</span>
       </div>
 
       <div class="col-md-3">
@@ -69,23 +74,7 @@ canvas { background: #111; border-radius: 6px; }
         </button>
       </div>
 
-      <!-- RADIO + STATS -->
-      <div class="col-12 d-flex justify-content-between flex-wrap mt-2">
-
-        <div>
-          <label class="me-3">
-            <input type="radio" name="trainType" checked
-              onchange="setType('PASS')">
-            Passenger (50 kmph)
-          </label>
-
-          <label>
-            <input type="radio" name="trainType"
-              onchange="setType('GOODS')">
-            Goods (30 kmph)
-          </label>
-        </div>
-
+      <div class="col-12 mt-2 d-flex justify-content-between flex-wrap">
         <div class="stat">Points: <span id="statPoints">0</span></div>
         <div class="stat">Stops: <span id="statStops">0</span></div>
         <div class="stat">Homes: <span id="statHomes">0</span></div>
@@ -101,29 +90,20 @@ canvas { background: #111; border-radius: 6px; }
   </div>
 </div>
 
-<!-- STOPPAGE ANALYSIS -->
-<div id="stopCard" class="card shadow">
-  <div class="card-header bg-dark text-white">
-    🔴 STOPPAGE ANALYSIS
-  </div>
-  <div class="card-body">
-    <div id="stopInfo" class="text-light mb-2"></div>
-    <canvas id="stopChart" height="200"></canvas>
-  </div>
-</div>
-
+<!-- MAP -->
 <div id="map"></div>
 
+<!-- Leaflet -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script>
 /* ================= CONFIG ================= */
-let TRAIN_TYPE = "PASS";
-let LIMIT = 50;
+const PASS_LIMIT = 60;
+const GOODS_LIMIT = 30;
 
 const STOP_SPEED = 1;
 const STOP_MIN_SEC = 20;
-const HOME_MATCH_RADIUS = 80;
+const HOME_MATCH_RADIUS = 80; // meters
 
 /* ================= GLOBALS ================= */
 let map, layerGroup;
@@ -155,22 +135,58 @@ L.tileLayer("https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}", {
 layerGroup = L.layerGroup().addTo(map);
 
 /* ================= ICONS ================= */
-const pinIcon = L.icon({
-  iconUrl: "https://cdn-icons-png.flaticon.com/512/684/684908.png",
-  iconSize: [14, 14],
-  iconAnchor: [7, 14]
+const homeOKIcon = L.divIcon({
+  html: "🟢",
+  iconSize: [20, 20],
+  className: ""
 });
 
-const startIcon = L.divIcon({ html: "🟢 START", iconSize: [60, 20] });
-const endIcon   = L.divIcon({ html: "🔵 END", iconSize: [50, 20] });
-const stopIcon  = L.divIcon({ html: "🛑", iconSize: [24, 24] });
-const homeOKIcon   = L.divIcon({ html: "🚦", iconSize: [22, 22] });
-const homeViolIcon= L.divIcon({ html: "🚦", iconSize: [22, 22], className: "text-danger" });
+const homeViolIcon = L.divIcon({
+  html: "🔴",
+  iconSize: [20, 20],
+  className: ""
+});
+
+/* ================= PARSER ================= */
+function parseFile(file, callback) {
+  if (!file) return;
+
+  const ext = file.name.split(".").pop().toLowerCase();
+
+  if (ext === "csv") {
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: res => callback(res.data)
+    });
+    return;
+  }
+
+  if (ext === "xlsx" || ext === "xls") {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const wb = XLSX.read(new Uint8Array(e.target.result), { type: "array" });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+      callback(json);
+    };
+    reader.readAsArrayBuffer(file);
+  }
+}
 
 /* ================= HELPERS ================= */
-function setType(t) {
-  TRAIN_TYPE = t;
-  LIMIT = t === "PASS" ? 50 : 30;
+function find(row, keys) {
+  for (let k in row) {
+    const ck = k.toLowerCase().replace(/\s|\./g, "");
+    for (let key of keys)
+      if (ck.includes(key)) return row[k];
+  }
+  return null;
+}
+
+function detectType(train) {
+  if (!train) return "PASS";
+  return /^\d+$/.test(train.toString()) ? "PASS" : "GOODS";
 }
 
 function distanceMeters(lat1, lon1, lat2, lon2) {
@@ -188,41 +204,10 @@ function distanceMeters(lat1, lon1, lat2, lon2) {
   return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
-function find(row, keys) {
-  for (let k in row) {
-    const ck = k.toLowerCase().replace(/\s|\./g, "");
-    for (let key of keys)
-      if (ck.includes(key)) return row[k];
-  }
-  return null;
-}
-
-/* ================= PARSER ================= */
-function parseFile(file, callback) {
-  if (!file) return;
-  const ext = file.name.split(".").pop().toLowerCase();
-
-  if (ext === "csv") {
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: res => callback(res.data)
-    });
-    return;
-  }
-
-  const reader = new FileReader();
-  reader.onload = e => {
-    const wb = XLSX.read(new Uint8Array(e.target.result), { type: "array" });
-    const sheet = wb.Sheets[wb.SheetNames[0]];
-    callback(XLSX.utils.sheet_to_json(sheet, { defval: "" }));
-  };
-  reader.readAsArrayBuffer(file);
-}
-
 /* ================= LOADERS ================= */
 function loadSPM(data) {
   spmData = [];
+
   data.forEach(r => {
     const lat = parseFloat(find(r, ["latitude", "lat"]));
     const lon = parseFloat(find(r, ["longitude", "lon"]));
@@ -230,12 +215,14 @@ function loadSPM(data) {
     const time = find(r, ["logging", "time"]);
 
     if (isNaN(lat) || isNaN(lon) || isNaN(speed)) return;
+
     spmData.push({ lat, lon, speed, time });
   });
 }
 
 function loadFSD(data) {
   fsdHomes = [];
+
   data.forEach(r => {
     if (!r.Type || r.Type.toString().toUpperCase() !== "HOME") return;
 
@@ -243,10 +230,17 @@ function loadFSD(data) {
     if (!station) return;
 
     let dirn = "";
+
     if (r.DIRN) {
       const d = r.DIRN.toString().toUpperCase();
       if (d.includes("UP")) dirn = "UP";
       else if (d.includes("DN")) dirn = "DN";
+    }
+
+    if (!dirn && r["Station-DIR"]) {
+      const sd = r["Station-DIR"].toString().toUpperCase();
+      if (sd.endsWith("-UP")) dirn = "UP";
+      else if (sd.endsWith("-DN")) dirn = "DN";
     }
 
     const lat = parseFloat(r.Latitude);
@@ -287,40 +281,36 @@ function runAnalysis() {
   let homesViol = 0;
   let maxHomeSpeed = 0;
 
+  const type = detectType(trainNo);
+  const LIMIT = type === "PASS" ? PASS_LIMIT : GOODS_LIMIT;
+
+  /* ===== ROUTE & STOPS ===== */
   let route = [];
   let stopBuffer = [];
   let currentStop = null;
 
-  spmData.forEach((p, idx) => {
+  spmData.forEach(p => {
     const pos = [p.lat, p.lon];
     route.push(pos);
     bounds.push(pos);
 
-    if (idx === 0) {
-      L.marker(pos, { icon: startIcon })
-        .bindPopup(`<b>START</b><br>${p.time}<br>Speed: ${p.speed}`)
-        .addTo(layerGroup);
-    }
-
-    if (idx === spmData.length - 1) {
-      L.marker(pos, { icon: endIcon })
-        .bindPopup(`<b>END</b><br>${p.time}<br>Speed: ${p.speed}`)
-        .addTo(layerGroup);
-    }
-
     // STOP DETECT
     if (p.speed <= STOP_SPEED) {
       stopBuffer.push(p);
-      if (!currentStop) currentStop = { start: p.time, data: [] };
-      currentStop.data.push(p);
+      if (!currentStop) currentStop = { start: p.time };
     } else {
       finalizeStop(stopBuffer, currentStop);
       stopBuffer = [];
       currentStop = null;
     }
 
-    // DRAW PIN
-    L.marker(pos, { icon: pinIcon }).addTo(layerGroup);
+    // DRAW POINT
+    L.circleMarker(pos, {
+      radius: 3,
+      color: "#1E90FF",
+      weight: 1,
+      fillOpacity: 0.8
+    }).addTo(layerGroup);
   });
 
   finalizeStop(stopBuffer, currentStop);
@@ -336,10 +326,12 @@ function runAnalysis() {
   /* ===== HOME SIGNAL MATCH ===== */
   fsdHomes.forEach(home => {
     homesChecked++;
+
     const match = findNearestSPM(home);
     if (!match) return;
 
     maxHomeSpeed = Math.max(maxHomeSpeed, match.speed);
+
     const violated = match.speed > LIMIT;
     if (violated) homesViol++;
 
@@ -398,7 +390,10 @@ function findNearestSPM(home) {
   });
 
   if (minDist <= HOME_MATCH_RADIUS) {
-    return { ...best, distance: minDist };
+    return {
+      ...best,
+      distance: minDist
+    };
   }
   return null;
 }
@@ -406,57 +401,35 @@ function findNearestSPM(home) {
 /* ================= STOP FINALIZER ================= */
 function finalizeStop(buffer, meta) {
   if (!buffer.length || !meta) return;
-  if (buffer.length < STOP_MIN_SEC) return;
+
+  const duration = buffer.length;
+  if (duration < STOP_MIN_SEC) return;
 
   const avgLat = buffer.reduce((s, p) => s + p.lat, 0) / buffer.length;
   const avgLon = buffer.reduce((s, p) => s + p.lon, 0) / buffer.length;
 
-  const stopObj = {
+  stopReport.push({
     start: meta.start,
     end: buffer[buffer.length - 1].time,
-    duration: buffer.length,
-    data: meta.data
-  };
-
-  stopReport.push(stopObj);
-
-  L.marker([avgLat, avgLon], { icon: stopIcon })
-    .bindPopup(`
-      <b>STOP EVENT</b><br>
-      Start: ${stopObj.start}<br>
-      End: ${stopObj.end}<br>
-      Duration: ${stopObj.duration} sec<br>
-      <i>Click marker for braking analysis</i>
-    `)
-    .on("click", () => showStopAnalysis(stopObj))
-    .addTo(layerGroup);
-}
-
-/* ================= STOP ANALYSIS ================= */
-function showStopAnalysis(stop) {
-  document.getElementById("stopCard").style.display = "block";
-
-  document.getElementById("stopInfo").innerHTML = `
-    <b>Start:</b> ${stop.start}<br>
-    <b>End:</b> ${stop.end}<br>
-    <b>Duration:</b> ${stop.duration} sec
-  `;
-
-  const canvas = document.getElementById("stopChart");
-  const ctx = canvas.getContext("2d");
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  ctx.strokeStyle = "#00ff99";
-  ctx.beginPath();
-
-  stop.data.forEach((p, i) => {
-    const x = i * (canvas.width / stop.data.length);
-    const y = canvas.height - (p.speed * 3);
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
+    duration,
+    lat: avgLat.toFixed(6),
+    lon: avgLon.toFixed(6)
   });
 
-  ctx.stroke();
+  L.circleMarker([avgLat, avgLon], {
+    radius: 9,
+    color: "#000",
+    fillColor: "#8B0000",
+    fillOpacity: 0.9,
+    weight: 2
+  })
+  .bindPopup(`
+    <b>STOP EVENT</b><br>
+    <b>Start:</b> ${meta.start}<br>
+    <b>End:</b> ${buffer[buffer.length - 1].time}<br>
+    <b>Duration:</b> ${duration} sec
+  `)
+  .addTo(layerGroup);
 }
 
 /* ================= EXPORT ================= */
