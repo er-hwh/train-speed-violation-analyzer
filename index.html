@@ -2,344 +2,804 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Train Speed Violation Analyzer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TLC/PCNL Dashboard - HWH Division</title>
 
-<!-- Bootstrap -->
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-
-<!-- Font Awesome -->
 <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
 
-<!-- Leaflet -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+body {
+  background: #f1f4f8;
+  font-family: "Segoe UI", Roboto, Arial, sans-serif;
+  margin: 0;
+}
 
-<!-- PapaParse (REQUIRED for CSV) -->
-<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+/* ================= LAYOUT ================= */
+.app { display: flex; min-height: 100vh; }
 
-<link rel="stylesheet" href="style.css">
+/* ================= SIDEBAR ================= */
+.sidebar {
+  width: 240px;
+  background: #0b3c6f;
+  color: white;
+  display: flex;
+  flex-direction: column;
+}
+.sidebar h4 {
+  padding: 15px;
+  text-align: center;
+  border-bottom: 1px solid rgba(255,255,255,0.2);
+}
+.menu { flex: 1; padding: 10px; }
+.menu button {
+  width: 100%;
+  background: none;
+  border: none;
+  color: white;
+  padding: 12px 15px;
+  text-align: left;
+  border-radius: 8px;
+  margin-bottom: 5px;
+}
+.menu button:hover,
+.menu button.active {
+  background: rgba(255,255,255,0.15);
+}
+
+/* ================= MAIN ================= */
+.main { flex: 1; display: flex; flex-direction: column; }
+
+/* ================= HEADER ================= */
+.header {
+  background: linear-gradient(135deg, #003366, #0b4fa2);
+  color: white;
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* ================= CONTENT ================= */
+.content { flex: 1; padding: 20px; }
+
+/* ================= FOOTER ================= */
+.footer {
+  background: #eef2f7;
+  padding: 8px 20px;
+  text-align: center;
+  font-size: 0.85rem;
+}
+
+/* ================= SEARCH BAR ================= */
+.search-wrapper {
+  max-width: 1200px;
+  margin: auto;
+  position: relative;
+}
+
+.filter-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.filter-mini {
+  min-width: 140px;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  background: #f8fafc;
+}
+
+.search-wide {
+  width: 100%;
+}
+
+.search-wide .form-control {
+  height: 48px;
+  font-size: 1rem;
+  border-radius: 14px 0 0 14px;
+}
+
+.search-wide .input-group-text {
+  height: 48px;
+  border-radius: 0 14px 14px 0;
+  background: linear-gradient(135deg, #0d6efd, #084298);
+  color: white;
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+
+/* ================= SUGGESTIONS ================= */
+#suggestions {
+  width: 100%;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  border-radius: 0 0 16px 16px;
+  overflow: hidden;
+}
+
+.result-header {
+  background: #eef3fb;
+  padding: 8px 15px;
+  font-weight: 600;
+  border-bottom: 1px solid #ddd;
+}
+
+.list-group-item {
+  padding: 14px 18px;
+  font-size: 0.95rem;
+}
+
+.suggest-item {
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.suggest-item:hover,
+.suggest-item.active {
+  background: #e8f0ff;
+}
+
+/* ================= RESULT PANEL ================= */
+.result-panel {
+  max-width: 1200px;
+  margin: 20px auto;
+  background: white;
+  border-radius: 24px;
+  box-shadow: 0 15px 35px rgba(0,0,0,0.12);
+  padding: 25px;
+  overflow: visible;
+}
+
+/* ================= PROFILE TOP ================= */
+.profile-top {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 15px;
+}
+
+.profile-avatar {
+  font-size: 4rem;
+  color: #0b4fa2;
+}
+
+.profile-highlights {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.highlight-box {
+  background: #f8fafc;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 0.9rem;
+}
+
+.highlight-box b {
+  display: block;
+  color: #334155;
+  font-size: 0.8rem;
+  margin-bottom: 2px;
+}
+
+/* ================= LR ================= */
+.section-block {
+  margin-top: 25px;
+}
+
+.section-title {
+  font-weight: 600;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lr-valid { background-color: #dcfce7; }
+.lr-expired { background-color: #fee2e2; }
+
+.highlight {
+  background: #fff3b0;
+  padding: 0 2px;
+  border-radius: 4px;
+}
+
+/* ========== MOBILE UI PRO UPGRADE ========== */
+@media (max-width: 768px) {
+
+  .content {
+    padding: 12px;
+  }
+
+  .result-panel {
+    border-radius: 18px;
+    padding: 16px;
+    margin: 12px auto;
+  }
+
+  .profile-top {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 10px;
+  }
+
+  .profile-avatar {
+    font-size: 3.5rem;
+  }
+
+  .profile-highlights {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+
+  .highlight-box {
+    padding: 10px;
+    font-size: 0.85rem;
+  }
+
+  /* Floating Call Button */
+  .fab-call {
+    position: fixed;
+    bottom: 20px;
+    right: 16px;
+    background: linear-gradient(135deg, #16a34a, #15803d);
+    color: white;
+    border-radius: 50px;
+    padding: 14px 22px;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+    z-index: 3000;
+    text-decoration: none;
+  }
+
+  .fab-call i {
+    font-size: 1.2rem;
+  }
+}
+
+</style>
 </head>
+<body>
 
-<body class="bg-light">
-    <!-- NAVBAR -->
-<nav class="navbar navbar-dark bg-primary shadow-sm">
-  <div class="container-fluid">
-    <span class="navbar-brand fw-bold">
-      <i class="fa-solid fa-train"></i>
-      Train Speed Violation Analyzer
-      <a
-        href="single-train.html"
-        target="_blank"
-        class="btn btn-warning ms-2">
-        🔍 individual Train Analysis
-      </a>
-    </span>
-  </div>
-</nav>
+<div class="app">
 
-<div class="container-fluid my-4 px-4 px-lg-5">
-
-  <!-- UPLOAD -->
-  <div class="card shadow-sm mb-4">
-      <div class="card-header fw-bold d-flex justify-content-between align-items-center">
-      <span>
-        <i class="fa-solid fa-file-csv text-success"></i>
-        CSV Upload
-      </span>
-
-      <!-- CENTER (DATE) -->
-      <span class="mx-auto text-primary fw-bold" id="analysisDate">
-        Analysis of —
-      </span>
-
-      <!-- BUTTON ON TOP RIGHT -->
-      <button id="analyzeBtn" class="btn btn-success px-4">
-        <i class="fa-solid fa-play"></i>
-        Upload & Analyze
-      </button>
-    </div>
-
-    <div class="card-body row g-3 align-items-end">
-
-      <!-- RTIS DATA -->
-      <div class="col-md-4">
-        <label class="form-label text-danger fw-bold">
-          RTIS Data
-        </label>
-        <input
-          type="file"
-          id="csvFile"
-          class="form-control"
-          accept=".csv"
-        >
-      </div>
-
-      <!-- FSD DATA -->
-      <div class="col-md-4">
-        <label class="form-label fw-bold text-primary">
-          FSD Data (Home Signal)
-        </label>
-        <input
-          type="file"
-          id="fsdFile"
-          class="form-control"
-          accept=".csv"
-        >
-      </div>
-
-      <!-- CMS DATA -->
-      <div class="col-md-4">
-        <label class="form-label fw-bold text-success">
-          CMS Data (Crew Details)
-        </label>
-        <input
-          type="file"
-          id="cmsFile"
-          class="form-control"
-          accept=".csv"
-        >
-      </div>
-
-      <!-- BUTTON -->
-      <!-- div class="col-md-12 text-end mt-2">
-        <button id="analyzeBtn" class="btn btn-success px-4">
-          <i class="fa-solid fa-play"></i>
-          Upload & Analyze
-        </button>
-      </div> -->
-
-    </div>
-  </div>
-
-
-  <!-- SUMMARY -->
-  <div class="row mb-4">
-    <div class="col-md-6">
-      <div class="card bg-info text-white summary-card shadow-sm">
-        <div class="card-body">
-          <h6><i class="fa-solid fa-users"></i> Passenger</h6>
-          <div>Trains: <b id="pTrains">0</b></div>
-          <div>Violations: <b id="pViolations">0</b></div>
-          <div>Max Speed: <b id="pMax">0</b> kmph</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="col-md-6">
-      <div class="card bg-danger text-white summary-card shadow-sm">
-        <div class="card-body">
-          <h6><i class="fa-solid fa-box"></i> Goods</h6>
-          <div>Trains: <b id="gTrains">0</b></div>
-          <div>Violations: <b id="gViolations">0</b></div>
-          <div>Max Speed: <b id="gMax">0</b> kmph</div>
-        </div>
-      </div>
-    </div>
-  </div>
-  <!-- VIOLATION LEADERS -->
-  <div class="card shadow-sm mb-4">
-    <div class="card-header fw-bold">
-      <i class="fa-solid fa-ranking-star"></i>
-      Violation Leaders
-    </div>
-
-    <div class="card-body">
-      <div class="row">
-
-        <!-- Passenger : LEFT -->
-        <div class="col-md-6 col-12 mb-3">
-          <h6 class="text-primary">
-            <i class="fa-solid fa-users"></i> Passenger
-          </h6>
-
-          <b>Top Trains</b>
-          <ul class="list-group mb-2" id="topPassengerTrains"></ul>
-
-          <b>Top Stations</b>
-          <ul class="list-group mb-2" id="topPassengerStations"></ul>
-
-          <div class="alert alert-info py-2">
-            <b>Highest Train:</b>
-            <span id="maxPassengerTrain">NA</span><br>
-            <b>Highest Station:</b>
-            <span id="maxPassengerStation">NA</span>
-          </div>
-        </div>
-
-        <!-- Goods : RIGHT -->
-        <div class="col-md-6 col-12 mb-3">
-          <h6 class="text-danger">
-            <i class="fa-solid fa-box"></i> Goods
-          </h6>
-
-          <b>Top Trains</b>
-          <ul class="list-group mb-2" id="topGoodsTrains"></ul>
-
-          <b>Top Stations</b>
-          <ul class="list-group mb-2" id="topGoodsStations"></ul>
-
-          <div class="alert alert-danger py-2">
-            <b>Highest Train:</b>
-            <span id="maxGoodsTrain">NA</span><br>
-            <b>Highest Station:</b>
-            <span id="maxGoodsStation">NA</span>
-          </div>
-        </div>
-
-      </div>
-    </div>
-  </div>
-
-  <!-- CHARTS -->
-  <div class="card shadow-sm mb-4">
-    <div class="card-header fw-bold">
-      <i class="fa-solid fa-chart-column"></i>
-      Violation Charts
-    </div>
-    <div class="card-body row">
-      <div class="col-md-6">
-        <canvas id="violationChart"></canvas>
-      </div>
-      <div class="col-md-6">
-        <canvas id="speedChart"></canvas>
-      </div>
-    </div>
-  </div>
-
-  <!-- MAP -->
-  <div class="card shadow-sm mb-4">
-    <div class="card-header fw-bold">
-      <i class="fa-solid fa-map-location-dot"></i>
-      Map View
-    </div>
-    <div class="card-body">
-      <div id="map"></div>
-    </div>
-  </div>
-
-  <!-- TABLES -->
-  <div class="card shadow-sm mb-4">
-    <div class="card-header fw-bold">
-      <i class="fa-solid fa-table"></i>
-      Violation Details
-    </div>
-    <div class="card-body">
-
-      <h6 class="text-primary">
-        <i class="fa-solid fa-users"></i> Passenger
-      </h6>
-      <div class="table-responsive mb-4">
-        <table class="table table-bordered table-sm">
-          <thead class="table-dark">
-            <tr>
-              <th>Sl</th><th>Loco</th><th>Train</th><th>Viol</th>
-              <th>Station</th><th>DIRN</th><th>Speed</th><th>Event</th>
-              <th>Lat</th><th>Lon</th><th>Err Dist(km)</th><th>Crew Name</th><th>Crew ID</th>
-            </tr>
-          </thead>
-          <tbody id="passengerTable"></tbody>
-        </table>
-      </div>
-
-      <h6 class="text-danger">
-        <i class="fa-solid fa-box"></i> Goods
-      </h6>
-      <div class="table-responsive">
-        <table class="table table-bordered table-sm">
-          <thead class="table-dark">
-            <tr>
-              <th>Sl</th><th>Loco</th><th>Train</th><th>Viol</th>
-              <th>Station</th><th>DIRN</th><th>Speed</th><th>Event</th>
-              <th>Lat</th><th>Lon</th><th>Error (km)</th><th>Crew Name</th><th>Crew ID</th>
-            </tr>
-          </thead>
-          <tbody id="goodsTable"></tbody>
-        </table>
-      </div>
-
-    </div>
-  </div>
-
-</div>
-
-<footer class="text-center text-muted small mb-3">
-  <i class="fa-solid fa-shield-halved"></i>
-  Internal Analytical Tool
-</footer>
-
-
-<!-- =========================
-     VIOLATION DETAILS MODAL
-========================= -->
-<div class="modal fade" id="violationModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-xl modal-dialog-scrollable">
-    <div class="modal-content">
-
-      <!-- HEADER -->
-      <div class="modal-header">
-        <h5 class="modal-title">
-          <i class="fa-solid fa-triangle-exclamation text-danger"></i>
-          Violation Details
-        </h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-
-      <!-- BODY -->
-      <div class="modal-body">
-
-        <!-- 🔹 HEADER BOX (Train / Station) -->
-        <div id="modalHeaderBox" class="alert alert-secondary mb-3"></div>
-
-        <!-- 🔹 VIOLATION TABLE -->
-        <div class="table-responsive">
-          <table class="table table-bordered table-sm">
-            <thead class="table-dark">
-              <tr>
-                <th>Train</th>
-                <th>Loco</th>
-                <th>DIRN</th>
-                <th>Station</th>
-                <th>Speed</th>
-                <th>Error (km)</th>
-                <th>Time</th>
-                <th>Crew Name</th>
-                <th>Crew ID</th>
-              </tr>
-            </thead>
-            <tbody id="violationModalBody"></tbody>
-          </table>
-        </div>
-
-      </div>
-
-
-      <!-- FOOTER -->
-      <div class="modal-footer">
-        <button class="btn btn-secondary" data-bs-dismiss="modal">
-          Close
-        </button>
-      </div>
-
-    </div>
+<!-- SIDEBAR -->
+<div class="sidebar">
+  <h4><i class="fa-solid fa-train"></i> TLC/PCNL</h4>
+  <div class="menu">
+    <button class="active" onclick="loadCrewModule(this)">
+      <i class="fa-solid fa-users"></i> Crew Search
+    </button>
+    <!-- <button onclick="loadSpeedModule(this)">
+      <i class="fa-solid fa-gauge-high"></i> Speed Analyzer
+    </button>
+    <button onclick="loadSPMModule(this)">
+      <i class="fa-solid fa-chart-line"></i> SPM Analysis
+    </button>
+    <button onclick="loadMemoModule(this)">
+      <i class="fa-solid fa-file-lines"></i> Memo / Long Hours
+    </button>
+    <button onclick="loadContactModule(this)">
+      <i class="fa-solid fa-phone"></i> Contact Us
+    </button> -->
   </div>
 </div>
 
+<!-- MAIN -->
+<div class="main">
 
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<!-- HEADER -->
+<div class="header">
+  <div class="d-flex align-items-center gap-3">
+    <img src="/logo.png" height="40" onerror="this.style.display='none'">
+    <div>
+      <div class="fw-bold">TLC / PCNL Dashboard — HWH Division</div>
+      <small>Eastern Railway</small>
+    </div>
+  </div>
 
-<!-- Bootstrap -->
+  <div class="d-flex align-items-center gap-3">
+    <button id="menuToggle" class="btn btn-light d-md-none">
+      <i class="fa-solid fa-ellipsis-vertical"></i>
+    </button>
+    <div id="clock"></div>
+  </div>
+</div>
+
+<!-- CONTENT -->
+<div id="content" class="content"></div>
+
+<!-- FOOTER -->
+<div class="footer">
+  Developed by S Samanta / APCNL
+</div>
+
+</div>
+</div>
+<div id="overlay" class="menu-overlay"></div>
+<script>
+const API_BASE = "http://localhost:3000";
+// later change to Render URL
+
+/* ================= CLOCK ================= */
+function updateClock() {
+  document.getElementById("clock").innerText = new Date().toLocaleString();
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+/* ================= MENU ================= */
+function setActive(btn) {
+  document.querySelectorAll(".menu button").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+
+  document.querySelector(".sidebar").classList.remove("show");
+  document.getElementById("overlay").style.display = "none";
+}
+
+
+/* ================= MODULE LOADERS ================= */
+function loadCrewModule(btn) {
+  if (btn) setActive(btn);
+
+  document.getElementById("content").innerHTML = `
+    <h4 class="mb-3 d-flex align-items-center gap-2">
+      <i class="fa-solid fa-users"></i> Crew Search
+    </h4>
+
+    <div class="search-wrapper">
+
+      <div class="filter-row">
+        <select id="divisionFilter" class="form-select filter-mini">
+          <option value="">All Division</option>
+          <option value="HWH">HWH</option>
+          <option value="SDAH">SDAH</option>
+          <option value="ASN">ASN</option>
+          <option value="MLDT">MLDT</option>
+        </select>
+
+        <select id="lobbyFilter" class="form-select filter-mini">
+          <option value="">All Lobby</option>
+        </select>
+
+        <select id="desigFilter" class="form-select filter-mini">
+          <option value="">All Designation</option>
+        </select>
+      </div>
+
+      <div class="input-group input-group-lg search-wide">
+        <input 
+          id="search"
+          class="form-control"
+          placeholder="Search Crew ID, Name, Designation or Mobile"
+          autocomplete="off"
+        >
+        <span class="input-group-text">
+          <i class="fa-solid fa-magnifying-glass"></i>
+        </span>
+      </div>
+
+      <div id="suggestions" class="list-group shadow position-absolute" style="display:none;"></div>
+    </div>
+
+    <div id="resultBox" class="result-panel"></div>
+  `;
+
+  bindFilterEvents();
+  initCrewSearch();
+
+  // Default Division = HWH
+  document.getElementById("divisionFilter").value = "HWH";
+  loadMeta();
+}
+
+/* ================= PLACEHOLDERS ================= */
+function loadSpeedModule(btn) {
+  if (btn) setActive(btn);
+  document.getElementById("content").innerHTML = `
+    <h4><i class="fa-solid fa-gauge-high"></i> Speed Violation Analyzer</h4>
+    <div class="alert alert-info mt-3">
+      Excel upload, violation charts & trend analysis will appear here.
+    </div>
+  `;
+}
+
+function loadSPMModule(btn) {
+  if (btn) setActive(btn);
+  document.getElementById("content").innerHTML = `
+    <h4><i class="fa-solid fa-chart-line"></i> SPM Analysis</h4>
+    <div class="alert alert-info mt-3">
+      SPM performance reports & grading dashboard.
+    </div>
+  `;
+}
+
+function loadMemoModule(btn) {
+  if (btn) setActive(btn);
+  document.getElementById("content").innerHTML = `
+    <h4><i class="fa-solid fa-file-lines"></i> Memo & Long Hours</h4>
+    <div class="alert alert-info mt-3">
+      Memo tracking & compliance reports.
+    </div>
+  `;
+}
+
+function loadContactModule(btn) {
+  if (btn) setActive(btn);
+  document.getElementById("content").innerHTML = `
+    <h4><i class="fa-solid fa-phone"></i> Contact</h4>
+    <p class="mt-3">
+      TLC Office — HWH Division<br>
+      Eastern Railway<br><br>
+      Developed by S Samanta / APCNL
+    </p>
+  `;
+}
+
+/* ================= FILTER META ================= */
+function bindFilterEvents() {
+  const division = document.getElementById("divisionFilter");
+  const lobby = document.getElementById("lobbyFilter");
+  const desig = document.getElementById("desigFilter");
+  const input = document.getElementById("search");
+
+  async function rerunSearch() {
+    const q = input.value.trim();
+    if (!q) return;
+
+    const list = await fetchSuggestions(q);
+    showSuggestions(list, q);
+  }
+
+  // Division reloads lobby, keeps designation
+  division.addEventListener("change", async () => {
+    await loadLobbiesOnly();
+    rerunSearch();
+  });
+
+  // These never reset anything — only search
+  lobby.addEventListener("change", rerunSearch);
+  desig.addEventListener("change", rerunSearch);
+}
+
+async function loadLobbiesOnly() {
+  try {
+    const division = document.getElementById("divisionFilter").value;
+    const lobbySelect = document.getElementById("lobbyFilter");
+
+    // Save current selection
+    const prevLobby = lobbySelect.value;
+
+    const res = await fetch(`/lobbies?division=${division}`);
+    const lobbies = await res.json();
+
+    lobbySelect.innerHTML = `<option value="">All Lobby</option>` +
+      lobbies.map(l => `<option value="${l}">${l}</option>`).join("");
+
+    // Restore selection if still valid
+    if (prevLobby && lobbies.includes(prevLobby)) {
+      lobbySelect.value = prevLobby;
+    }
+
+  } catch (e) {
+    console.error("LOBBY LOAD ERROR", e);
+  }
+}
+
+
+async function loadMeta() {
+  try {
+    // Save current designation
+    const desigSelect = document.getElementById("desigFilter");
+    const prevDesig = desigSelect.value;
+
+    // Load lobbies
+    await loadLobbiesOnly();
+
+    // Load designations
+    const desigRes = await fetch(`/designations`);
+    const designations = await desigRes.json();
+
+    desigSelect.innerHTML = `<option value="">All Designation</option>` +
+      designations.map(d => `<option value="${d}">${d}</option>`).join("");
+
+    // Restore designation if still exists
+    if (prevDesig && designations.includes(prevDesig)) {
+      desigSelect.value = prevDesig;
+    }
+
+  } catch (e) {
+    console.error("META LOAD ERROR", e);
+  }
+}
+
+/* ================= SEARCH ================= */
+let timer = null;
+let activeIndex = -1;
+
+function formatMobile(mobile) {
+  if (!mobile) return "";
+  let m = String(mobile).trim();
+  if (m.startsWith("+91")) m = m.slice(3);
+  else if (m.startsWith("91") && m.length > 10) m = m.slice(2);
+  return m.replace(/\D/g, "");
+}
+
+async function fetchSuggestions(q) {
+  const lobby = document.getElementById("lobbyFilter").value;
+  const desig = document.getElementById("desigFilter").value;
+  const division = document.getElementById("divisionFilter").value;
+
+  const url =
+    `/suggest?q=${encodeURIComponent(q)}` +
+    `&lobby=${lobby}&desig=${desig}&division=${division}`;
+
+  const res = await fetch(url);
+  return await res.json();
+}
+
+async function fetchProfile(crewId) {
+  const res = await fetch(`/search?q=${encodeURIComponent(crewId)}`);
+  return await res.json();
+}
+
+function highlight(text, q) {
+  if (!q) return text;
+  const re = new RegExp(`(${q})`, "gi");
+  return text.replace(re, `<span class="highlight">$1</span>`);
+}
+
+function initCrewSearch() {
+  const input = document.getElementById("search");
+  const box = document.getElementById("suggestions");
+
+  function runSearch() {
+    const q = input.value.trim();
+    clearTimeout(timer);
+
+    if (!q) {
+      box.style.display = "none";
+      activeIndex = -1;
+      return;
+    }
+
+    timer = setTimeout(async () => {
+      const list = await fetchSuggestions(q);
+      activeIndex = -1;
+      showSuggestions(list, q);
+    }, 200);
+  }
+
+  input.addEventListener("input", runSearch);
+
+  input.addEventListener("keydown", e => {
+    const items = box.querySelectorAll(".suggest-item");
+    if (!items.length) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      activeIndex = (activeIndex + 1) % items.length;
+    } 
+    else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      activeIndex = (activeIndex - 1 + items.length) % items.length;
+    } 
+    else if (e.key === "Enter") {
+      e.preventDefault();
+      if (activeIndex >= 0) items[activeIndex].click();
+      return;
+    }
+
+    items.forEach((el, i) => {
+      el.classList.toggle("active", i === activeIndex);
+    });
+  });
+
+  document.addEventListener("click", e => {
+    if (!box.contains(e.target) && e.target !== input) {
+      box.style.display = "none";
+    }
+  });
+}
+
+function showSuggestions(list, q) {
+  const box = document.getElementById("suggestions");
+
+  // NO DATA FOUND STATE
+  if (!list || !list.length) {
+    box.innerHTML = `
+      <div class="result-header">
+        Search Results — 0 found
+      </div>
+      <div class="list-group-item text-center text-muted py-4">
+        <i class="fa-solid fa-circle-exclamation fa-2x mb-2"></i>
+        <div class="fw-semibold">No Data Found</div>
+        <small>Try changing filters or search keywords</small>
+      </div>
+    `;
+    box.style.display = "block";
+    return;
+  }
+
+  box.innerHTML = `
+    <div class="result-header">
+      Search Results — ${list.length} found
+    </div>
+  ` + list.map(item => `
+    <div class="list-group-item suggest-item d-flex justify-content-between align-items-center"
+      onclick="selectCrew('${item.crew_id}')">
+
+      <div class="text-truncate">
+        <b>${highlight(item.crew_id, q)}</b>
+        <span class="ms-2">
+          ${highlight(item.crew_name || "", q)}
+          <span class="text-primary fw-semibold">
+            — ${item.designation || "N/A"}
+          </span>
+          <span class="text-muted">
+            — ${item.mobile ? formatMobile(item.mobile) : "No mobile"}
+          </span>
+        </span>
+      </div>
+
+      ${
+        item.mobile
+          ? `<a href="tel:+91${formatMobile(item.mobile)}"
+                class="btn btn-sm btn-success ms-2"
+                onclick="event.stopPropagation()">
+                <i class="fa-solid fa-phone"></i>
+             </a>`
+          : ``
+      }
+    </div>
+  `).join("");
+
+  box.style.display = "block";
+}
+
+async function selectCrew(id) {
+  document.getElementById("search").value = id;
+  document.getElementById("suggestions").style.display = "none";
+
+  const data = await fetchProfile(id);
+  renderProfile(data);
+}
+
+/* ================= PROFILE ================= */
+function renderProfile(data) {
+  const box = document.getElementById("resultBox");
+
+  if (!data) {
+    box.innerHTML = `<div class="alert alert-warning text-center">No crew found</div>`;
+    return;
+  }
+
+  box.innerHTML = `
+    <div class="profile-top">
+      <div class="profile-avatar">
+        <i class="fa-solid fa-user-circle"></i>
+      </div>
+
+      <div class="flex-grow-1 text-center text-md-start">
+        <h4 class="mb-1 fw-bold">${data.crew_name}</h4>
+        <span class="badge bg-primary px-3 py-2">${data.crew_id}</span>
+
+        <div class="profile-highlights mt-3">
+          <div class="highlight-box"><b>Mobile</b><span>${data.mobile ? formatMobile(data.mobile) : "N/A"}</span></div>
+          <div class="highlight-box"><b>CLI Name</b><span>${data.cli_name || "N/A"}</span></div>
+          <div class="highlight-box"><b>Current Grade</b><span>${data.current_grade || "N/A"}</span></div>
+          <div class="highlight-box"><b>Designation</b><span>${data.designation || "N/A"}</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="profile-highlights mt-3">
+      <div class="highlight-box"><b>Level</b><span>${data.level || "N/A"}</span></div>
+      <div class="highlight-box"><b>Cadre</b><span>${data.cadre || "N/A"}</span></div>
+      <div class="highlight-box"><b>Employee No</b><span>${data.emp_no || "N/A"}</span></div>
+      <div class="highlight-box"><b>Appointment</b><span>${formatDate(data.appoint_date)}</span></div>
+      <div class="highlight-box"><b>Promotion</b><span>${formatDate(data.promotion_date)}</span></div>
+      <div class="highlight-box"><b>Retirement</b><span>${formatDate(data.retirement_date)}</span></div>
+    </div>
+
+    <div class="section-block">
+      <div class="section-title">
+        <i class="fa-solid fa-route"></i>
+        Route Learning Records
+      </div>
+
+      ${
+        data.routes && data.routes.length
+          ? `
+          <div class="table-responsive">
+            <table class="table table-bordered table-striped">
+              <thead>
+                <tr>
+                  <th>Section</th>
+                  <th>Route No</th>
+                  <th>Valid Till</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${data.routes.map(r => `
+                  <tr class="${r.status === "VALID" ? "lr-valid" : "lr-expired"}">
+                    <td>${r.section_code || ""}</td>
+                    <td>${r.route_no || ""}</td>
+                    <td>${formatDate(r.valid_till)}</td>
+                    <td>
+                      <span class="badge ${r.status === "VALID" ? "bg-success" : "bg-danger"}">
+                        ${r.status}
+                      </span>
+                    </td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          </div>`
+          : `<div class="alert alert-secondary">No route learning data</div>`
+      }
+    </div>
+
+    ${
+      data.mobile
+        ? `<a href="tel:+91${formatMobile(data.mobile)}" class="fab-call d-md-none">
+             <i class="fa-solid fa-phone"></i> Call
+           </a>`
+        : ``
+    }
+  `;
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return "N/A";
+  const d = new Date(dateStr);
+  if (isNaN(d)) return dateStr;
+  return d.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric"
+  });
+}
+
+/* ============ MOBILE MENU TOGGLE ============ */
+document.addEventListener("DOMContentLoaded", () => {
+  const menuBtn = document.getElementById("menuToggle");
+  const sidebar = document.querySelector(".sidebar");
+  const overlay = document.getElementById("overlay");
+
+  if (!menuBtn || !sidebar || !overlay) return;
+
+  menuBtn.addEventListener("click", () => {
+    sidebar.classList.toggle("show");
+    overlay.style.display = sidebar.classList.contains("show") ? "block" : "none";
+  });
+
+  overlay.addEventListener("click", () => {
+    sidebar.classList.remove("show");
+    overlay.style.display = "none";
+  });
+});
+
+/* ================= LOAD DEFAULT ================= */
+document.addEventListener("DOMContentLoaded", () => {
+  const firstBtn = document.querySelector(".menu button");
+  loadCrewModule(firstBtn);
+});
+
+</script>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-
-<!-- Leaflet -->
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-<!-- PapaParse -->
-<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-
-<!-- Chart.js (VERY IMPORTANT) -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-
-<!-- Your App -->
-<script src="app.js"></script>
-
 </body>
 </html>
